@@ -64,6 +64,10 @@ type ArtifactStore interface {
 
 	// Remove deletes every path listed in installed from disk.
 	Remove(ctx context.Context, installed []artifactv1alpha1.InstalledArtifact) error
+
+	// ScanAll discovers every artifact file on disk for artifactType, grouped by artifact name,
+	// by listing the type's directory and parsing each filename. See scan.go's doc comment.
+	ScanAll(ctx context.Context, artifactType Type) (map[string][]artifactv1alpha1.InstalledArtifact, error)
 }
 
 // LocalStore implements ArtifactStore against the local filesystem.
@@ -229,7 +233,10 @@ func FindInstalled(artifacts []artifactv1alpha1.InstalledArtifact, medium Medium
 	return nil
 }
 
-// SetInstalled upserts a File into the InstalledArtifacts slice (matched by Medium).
+// SetInstalled upserts a File into the InstalledArtifacts slice (matched by Medium). File carries
+// no Config sub-entry (that's tracked separately via UpdateInstalledConfig, e.g. for a Plugin's
+// shared config-file linkage), so updating an existing entry's main fields preserves whatever
+// Config it already had rather than clearing it.
 func SetInstalled(artifacts *[]artifactv1alpha1.InstalledArtifact, f File) {
 	for i, a := range *artifacts {
 		if a.Medium == string(f.Medium) {
@@ -239,6 +246,7 @@ func SetInstalled(artifacts *[]artifactv1alpha1.InstalledArtifact, f File) {
 				Priority:    f.Priority,
 				ContentHash: f.ContentHash,
 				SpecHash:    f.SpecHash,
+				Config:      a.Config,
 			}
 			return
 		}
@@ -287,22 +295,6 @@ func UpdateInstalledSpecHash(artifacts *[]artifactv1alpha1.InstalledArtifact, me
 			return
 		}
 	}
-}
-
-// FindInstalledConfig returns the config sub-entry for the artifact matching medium, or nil.
-// The returned File uses MediumInline and priority.MaxPriority (fixed for plugin config files).
-// ContentHash is always empty; callers must populate it via Verify before passing to Store.
-func FindInstalledConfig(artifacts []artifactv1alpha1.InstalledArtifact, medium Medium) *File {
-	for _, a := range artifacts {
-		if a.Medium == string(medium) && a.Config != nil {
-			return &File{
-				Path:     a.Config.Path,
-				Medium:   MediumInline,
-				Priority: priority.MaxPriority,
-			}
-		}
-	}
-	return nil
 }
 
 // UpdateInstalledConfig sets the Config sub-entry on the artifact matching medium.
